@@ -7,7 +7,15 @@ import 'package:flutter/foundation.dart';
 /// 스마트폰과 테슬라 차량 간의 통신을 담당하는 서비스 클래스
 /// (실제 Tesla Owner API 연동)
 class TeslaApiService {
-  final String _baseUrl = 'https://owner-api.teslamotors.com/api/1';
+  String _buildUrl(String path) {
+    final targetUrl = 'https://owner-api.teslamotors.com/api/1\$path';
+    if (kIsWeb) {
+      // 웹 환경에서 CORS 차단을 피하기 위해 공개 프록시를 경유합니다.
+      return 'https://corsproxy.io/?\${Uri.encodeComponent(targetUrl)}';
+    }
+    return targetUrl;
+  }
+
   String? _accessToken;
   String? _vehicleId;
 
@@ -36,7 +44,7 @@ class TeslaApiService {
     setToken(token);
     try {
       final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('$_baseUrl/vehicles'), headers: headers);
+      final response = await http.get(Uri.parse(_buildUrl('/vehicles')), headers: headers);
       
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
@@ -60,7 +68,7 @@ class TeslaApiService {
     
     try {
       final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('$_baseUrl/vehicles'), headers: headers);
+      final response = await http.get(Uri.parse(_buildUrl('/vehicles')), headers: headers);
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -84,7 +92,7 @@ class TeslaApiService {
     }
 
     final headers = await _getHeaders();
-    final response = await http.get(Uri.parse('$_baseUrl/vehicles/$vid/vehicle_data'), headers: headers);
+    final response = await http.get(Uri.parse(_buildUrl('/vehicles/$vid/vehicle_data')), headers: headers);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -103,7 +111,7 @@ class TeslaApiService {
     final vid = await getVehicleId();
     if (vid == null) return false;
     final headers = await _getHeaders();
-    final response = await http.post(Uri.parse('$_baseUrl/vehicles/$vid/wake_up'), headers: headers);
+    final response = await http.post(Uri.parse(_buildUrl('/vehicles/$vid/wake_up')), headers: headers);
     return response.statusCode == 200;
   }
 
@@ -114,7 +122,7 @@ class TeslaApiService {
 
     final headers = await _getHeaders();
     final response = await http.post(
-      Uri.parse('$_baseUrl/vehicles/$vid/command/$command'),
+      Uri.parse(_buildUrl('/vehicles/$vid/command/$command')),
       headers: headers,
       body: body != null ? jsonEncode(body) : null,
     );
