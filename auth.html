@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>인증 완료</title>
+</head>
+<body>
+    <p>인증 처리 중입니다. 잠시만 기다려주세요...</p>
+    <script>
+        // Tesla가 보내준 인증 코드를 추출
+        var params = new URLSearchParams(window.location.search);
+        var code = params.get('code');
+        var state = params.get('state');
+
+        if (code) {
+            // 메인 앱으로 코드를 가지고 리다이렉트
+            window.location.href = '/tesla/?code=' + encodeURIComponent(code) + '&state=' + encodeURIComponent(state || '');
+        } else {
+            // fallback: postMessage 방식 (데스크톱)
+            if (window.opener) {
+                window.opener.postMessage({
+                    'flutter-web-auth-2': window.location.href
+                }, window.location.origin);
+            }
+            try {
+                window.localStorage.setItem('flutter-web-auth-2', window.location.href);
+            } catch(e) {}
+            document.body.innerHTML = '<p>인증이 완료되었습니다. 이 창을 닫아주세요.</p>';
+        }
+    </script>
+</body>
+</html>
