@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:geolocator/geolocator.dart';
+
 import 'package:flutter_tts/flutter_tts.dart';
 import 'dart:async';
 
@@ -19,7 +19,7 @@ class _AssistanceScreenState extends State<AssistanceScreen> {
 
   // 주행 속도 시뮬레이션 관련
   double _currentSimulatedSpeed = 0.0;
-  double _targetSpeedLimit = 60.0; // 현재 도로 제한 속도 60km/h라고 가정
+  final double _targetSpeedLimit = 60.0; // 현재 도로 제한 속도 60km/h라고 가정
   
   // TTS & 경고 시스템
   final FlutterTts _flutterTts = FlutterTts();
@@ -156,8 +156,8 @@ class _AssistanceScreenState extends State<AssistanceScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.02),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                    color: Colors.white.withValues(alpha: 0.02),
+                    border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
@@ -254,8 +254,8 @@ class _AssistanceScreenState extends State<AssistanceScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isWarningActive 
-            ? Colors.redAccent.withOpacity(0.2) 
-            : Colors.white.withOpacity(0.05),
+            ? Colors.redAccent.withValues(alpha: 0.2) 
+            : Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isWarningActive ? Colors.redAccent : Colors.transparent,
@@ -278,7 +278,7 @@ class _AssistanceScreenState extends State<AssistanceScreen> {
           ),
           CupertinoSwitch(
             value: value,
-            activeColor: isWarningActive ? Colors.redAccent : Colors.blueAccent,
+            activeTrackColor: isWarningActive ? Colors.redAccent : Colors.blueAccent,
             onChanged: onChanged,
           ),
         ],
@@ -297,9 +297,9 @@ class _AssistanceScreenState extends State<AssistanceScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+          border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [

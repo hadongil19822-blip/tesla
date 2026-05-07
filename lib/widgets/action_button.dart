@@ -23,7 +23,7 @@ class ActionButton extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: isActive ? Colors.blueAccent.withOpacity(0.2) : Colors.white.withOpacity(0.05),
+              color: isActive ? Colors.blueAccent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
               shape: BoxShape.circle,
               border: Border.all(
                 color: isActive ? Colors.blueAccent : Colors.transparent,

@@ -256,13 +256,13 @@ class _NavigationScreenState extends State<NavigationScreen>
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isConnected
-                  ? const Color(0xFF4A6CF7).withOpacity(0.5)
-                  : Colors.white.withOpacity(0.08),
+                  ? const Color(0xFF4A6CF7).withValues(alpha: 0.5)
+                  : Colors.white.withValues(alpha: 0.08),
             ),
             boxShadow: isConnected
                 ? [
                     BoxShadow(
-                      color: const Color(0xFF4A6CF7).withOpacity(0.15),
+                      color: const Color(0xFF4A6CF7).withValues(alpha: 0.15),
                       blurRadius: _castGlowAnimation.value * 2,
                       spreadRadius: _castGlowAnimation.value / 2,
                     ),
@@ -276,8 +276,8 @@ class _NavigationScreenState extends State<NavigationScreen>
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: isConnected
-                      ? const Color(0xFF4A6CF7).withOpacity(0.2)
-                      : Colors.white.withOpacity(0.05),
+                      ? const Color(0xFF4A6CF7).withValues(alpha: 0.2)
+                      : Colors.white.withValues(alpha: 0.05),
                   shape: BoxShape.circle,
                 ),
                 child: AnimatedBuilder(
@@ -336,7 +336,7 @@ class _NavigationScreenState extends State<NavigationScreen>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.greenAccent.withOpacity(0.5),
+                        color: Colors.greenAccent.withValues(alpha: 0.5),
                         blurRadius: 6,
                       ),
                     ],
@@ -362,12 +362,12 @@ class _NavigationScreenState extends State<NavigationScreen>
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? (app['color'] as Color).withOpacity(0.15)
-                    : Colors.white.withOpacity(0.04),
+                    ? (app['color'] as Color).withValues(alpha: 0.15)
+                    : Colors.white.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: isSelected
-                      ? (app['color'] as Color).withOpacity(0.6)
+                      ? (app['color'] as Color).withValues(alpha: 0.6)
                       : Colors.transparent,
                   width: 2,
                 ),
@@ -432,7 +432,7 @@ class _NavigationScreenState extends State<NavigationScreen>
                       color: (_isCasting
                               ? const Color(0xFFFF4757)
                               : const Color(0xFF4A6CF7))
-                          .withOpacity(0.3),
+                          .withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -482,9 +482,9 @@ class _NavigationScreenState extends State<NavigationScreen>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.06),
+              color: Colors.white.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -511,7 +511,7 @@ class _NavigationScreenState extends State<NavigationScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButtonHideUnderline(
@@ -547,7 +547,7 @@ class _NavigationScreenState extends State<NavigationScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -557,7 +557,7 @@ class _NavigationScreenState extends State<NavigationScreen>
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.15),
+                  color: iconColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, color: iconColor, size: 22),
@@ -579,7 +579,7 @@ class _NavigationScreenState extends State<NavigationScreen>
               ),
               CupertinoSwitch(
                 value: value,
-                activeColor: iconColor,
+                activeTrackColor: iconColor,
                 onChanged: onChanged,
               ),
             ],
@@ -601,7 +601,7 @@ class _NavigationScreenState extends State<NavigationScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -627,8 +627,8 @@ class _NavigationScreenState extends State<NavigationScreen>
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF4A6CF7).withOpacity(0.2)
-                          : Colors.white.withOpacity(0.04),
+                          ? const Color(0xFF4A6CF7).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.04),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                         color: isSelected
@@ -660,10 +660,10 @@ class _NavigationScreenState extends State<NavigationScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF4A6CF7).withOpacity(0.08),
+        color: const Color(0xFF4A6CF7).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFF4A6CF7).withOpacity(0.2),
+          color: const Color(0xFF4A6CF7).withValues(alpha: 0.2),
         ),
       ),
       child: Column(
@@ -706,7 +706,7 @@ class _NavigationScreenState extends State<NavigationScreen>
             width: 20,
             height: 20,
             decoration: BoxDecoration(
-              color: const Color(0xFF4A6CF7).withOpacity(0.2),
+              color: const Color(0xFF4A6CF7).withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
             child: Center(

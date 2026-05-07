@@ -100,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     hintText: '이곳에 eyJ... 로 시작하는 Refresh Token 또는 Access Token을 붙여넣으세요.',
                     hintStyle: const TextStyle(color: Colors.grey),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.1),
+                    fillColor: Colors.white.withValues(alpha: 0.1),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
