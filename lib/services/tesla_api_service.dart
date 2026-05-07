@@ -7,14 +7,16 @@ import 'package:flutter/foundation.dart';
 /// 스마트폰과 테슬라 차량 간의 통신을 담당하는 서비스 클래스
 /// (실제 Tesla Owner API 연동)
 class TeslaApiService {
+  // Cloudflare Worker 프록시 URL (CORS 문제 해결)
+  static const _workerUrl = 'https://tesla-auth-proxy.hadongil19822.workers.dev';
+
   String _buildUrl(String path) {
-    // 테슬라가 owner-api를 중단하고 Fleet API로 강제 이전함 (2024~)
-    final targetUrl = 'https://fleet-api.prd.na.vn.cloud.tesla.com/api/1$path';
     if (kIsWeb) {
-      // 웹 환경에서 CORS 차단을 피하기 위해 공개 프록시를 경유합니다.
-      return 'https://corsproxy.io/?${Uri.encodeComponent(targetUrl)}';
+      // 웹 환경: 우리 Cloudflare Worker를 통해 Tesla Fleet API에 접근
+      return '$_workerUrl/api/1$path';
     }
-    return targetUrl;
+    // 네이티브 앱: 직접 통신
+    return 'https://fleet-api.prd.na.vn.cloud.tesla.com/api/1$path';
   }
 
   String? _accessToken;

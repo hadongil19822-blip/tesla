@@ -15,8 +15,12 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _tokenController = TextEditingController();
   bool _isLoading = false;
+  String _statusMessage = '';
+
+  static const _clientId = '0c603db8-e784-4ff4-9170-f07d4f1e2d55';
+  static const _redirectUri = 'https://hadongil19822-blip.github.io/tesla/auth.html';
+  static const _workerUrl = 'https://tesla-auth-proxy.hadongil19822.workers.dev';
 
   @override
   void initState() {
@@ -28,8 +32,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('tesla_token');
     if (token != null && token.isNotEmpty) {
-      _tokenController.text = token;
-      // 자동 로그인 시도
+      setState(() {
+        _isLoading = true;
+        _statusMessage = '저장된 토큰으로 자동 로그인 중...';
+      });
       final apiService = TeslaApiService();
       apiService.setToken(token);
       final isValid = await apiService.verifyToken(token);
@@ -37,59 +43,101 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.of(context).pushReplacement(
           CupertinoPageRoute(builder: (context) => const MainScreen()),
         );
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _statusMessage = '';
+          });
+        }
       }
     }
   }
 
-  void _handleTokenLogin() async {
-    final token = _tokenController.text.trim();
-    if (token.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('토큰 값을 입력해주세요!')),
-      );
-      return;
-    }
-
+  Future<void> _handleOfficialLogin() async {
     setState(() {
       _isLoading = true;
+      _statusMessage = '테슬라 로그인 페이지 여는 중...';
     });
 
-    final apiService = TeslaApiService();
-    final isValid = await apiService.verifyToken(token);
-
-    if (!mounted) return;
-
-    if (isValid) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('tesla_token', token);
-
-      Navigator.of(context).pushReplacement(
-        CupertinoPageRoute(builder: (context) => const MainScreen()),
-      );
-    } else {
-      setState(() {
-        _isLoading = false;
+    try {
+      // 1단계: 테슬라 공식 로그인 창 띄우기
+      final authUrl = Uri.https('auth.tesla.com', '/oauth2/v3/authorize', {
+        'response_type': 'code',
+        'client_id': _clientId,
+        'redirect_uri': _redirectUri,
+        'scope': 'openid vehicle_device_data vehicle_cmds offline_access',
+        'state': DateTime.now().millisecondsSinceEpoch.toString(),
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('유효하지 않은 토큰입니다.')),
-      );
-    }
-  }
 
-  Future<void> _handleOfficialLogin() async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('보안 정책 안내'),
-        content: const Text('테슬라의 강력한 보안 정책(CORS 및 방화벽)으로 인해, 백엔드 서버가 없는 순수 웹페이지(GitHub Pages)에서는 공식 로그인을 마칠 수 없습니다.\n\n앱스토어에서 "Auth app for Tesla" 등의 앱을 이용해 토큰을 발급받아 아래 입력창에 직접 붙여넣어 주세요.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
+      final result = await FlutterWebAuth2.authenticate(
+        url: authUrl.toString(),
+        callbackUrlScheme: 'https',
+      );
+
+      final code = Uri.parse(result).queryParameters['code'];
+      if (code == null) throw Exception('인증 코드를 받지 못했습니다.');
+
+      setState(() {
+        _statusMessage = '토큰 발급 중... (Cloudflare Worker 경유)';
+      });
+
+      // 2단계: Cloudflare Worker를 통해 인증코드 → 토큰 교환
+      final tokenResponse = await http.post(
+        Uri.parse('$_workerUrl/token'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'code': code}),
+      );
+
+      if (tokenResponse.statusCode != 200) {
+        final errData = jsonDecode(tokenResponse.body);
+        throw Exception('토큰 발급 실패: ${errData['error'] ?? tokenResponse.statusCode}');
+      }
+
+      final tokenData = jsonDecode(tokenResponse.body);
+      final accessToken = tokenData['access_token'];
+      if (accessToken == null) throw Exception('Access Token이 응답에 없습니다.');
+
+      // 3단계: 토큰 저장
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('tesla_token', accessToken);
+      if (tokenData['refresh_token'] != null) {
+        await prefs.setString('tesla_refresh_token', tokenData['refresh_token']);
+      }
+
+      setState(() {
+        _statusMessage = '차량 정보 불러오는 중...';
+      });
+
+      // 4단계: 차량 연결 확인 후 메인 화면 이동
+      final apiService = TeslaApiService();
+      final isValid = await apiService.verifyToken(accessToken);
+
+      if (isValid && mounted) {
+        Navigator.of(context).pushReplacement(
+          CupertinoPageRoute(builder: (context) => const MainScreen()),
+        );
+      } else if (mounted) {
+        // 토큰은 발급됐지만 차량 조회 실패 (차량이 잠자는 중일 수 있음)
+        // 그래도 토큰은 유효하므로 메인으로 이동
+        Navigator.of(context).pushReplacement(
+          CupertinoPageRoute(builder: (context) => const MainScreen()),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('로그인 실패: $e'),
+            duration: const Duration(seconds: 5),
           ),
-        ],
-      ),
-    );
+        );
+      }
+    }
   }
 
   @override
@@ -111,84 +159,50 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(CupertinoIcons.car_detailed, size: 80, color: Colors.white),
-                const SizedBox(height: 16),
+                const Icon(CupertinoIcons.car_detailed, size: 100, color: Colors.white),
+                const SizedBox(height: 24),
                 const Text(
                   'My Smart Car Web',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 1.5),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '테슬라 공식 웹 로그인은 백엔드 서버가 필요합니다.\n임시로 토큰 직접 입력 방식을 사용하세요.',
+                  '테슬라 공식 계정으로 안전하게 로그인하세요.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 64),
                 
-                // 공식 로그인 버튼 (안내 팝업용)
+                // 로그인 버튼
                 ElevatedButton(
-                  onPressed: _handleOfficialLogin,
+                  onPressed: _isLoading ? null : _handleOfficialLogin,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE82127), // 테슬라 레드
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Tesla 계정으로 로그인 (안내)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
-                
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24.0),
-                  child: Row(
-                    children: [
-                      Expanded(child: Divider(color: Colors.grey)),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Text('또는', style: TextStyle(color: Colors.grey)),
-                      ),
-                      Expanded(child: Divider(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                
-                // 토큰 입력
-                TextField(
-                  controller: _tokenController,
-                  maxLines: 3,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: 'ey... 로 시작하는 Access Token 입력',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.1),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // 토큰 로그인 버튼
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _handleTokenLogin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
+                    backgroundColor: const Color(0xFFE82127),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
                   ),
                   child: _isLoading
-                      ? const SizedBox(
-                          height: 20, width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(
+                              height: 20, width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(_statusMessage.isNotEmpty ? _statusMessage : '처리 중...', 
+                              style: const TextStyle(fontSize: 14, color: Colors.white)),
+                          ],
                         )
-                      : const Text('토큰으로 차량 연결하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      : const Text('Tesla 계정으로 로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 
                 // 건너뛰기 버튼
                 TextButton(
-                  onPressed: () {
+                  onPressed: _isLoading ? null : () {
                     Navigator.of(context).pushReplacement(
                       CupertinoPageRoute(builder: (context) => const MainScreen()),
                     );
@@ -202,11 +216,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
-  @override
-  void dispose() {
-    _tokenController.dispose();
-    super.dispose();
-  }
 }
-
