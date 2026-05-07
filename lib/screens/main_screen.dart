@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'home_screen.dart';
 import 'navigation_screen.dart';
+import 'entertainment_screen.dart';
 import 'analytics_screen.dart';
 import 'assistance_screen.dart';
 
@@ -18,6 +19,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const NavigationScreen(),
+    const EntertainmentScreen(),
     const AnalyticsScreen(),
     const AssistanceScreen(),
   ];
@@ -38,6 +40,8 @@ class _MainScreenState extends State<MainScreen> {
         unselectedItemColor: Colors.grey,
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
+        selectedFontSize: 11,
+        unselectedFontSize: 10,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.car_detailed),
@@ -46,6 +50,10 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.navigation_rounded),
             label: '내비',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.play_circle_outline_rounded),
+            label: '엔터',
           ),
           BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.chart_bar_alt_fill),
