@@ -8,7 +8,8 @@ import 'package:flutter/foundation.dart';
 /// (실제 Tesla Owner API 연동)
 class TeslaApiService {
   String _buildUrl(String path) {
-    final targetUrl = 'https://owner-api.teslamotors.com/api/1$path';
+    // 테슬라가 owner-api를 중단하고 Fleet API로 강제 이전함 (2024~)
+    final targetUrl = 'https://fleet-api.prd.na.vn.cloud.tesla.com/api/1$path';
     if (kIsWeb) {
       // 웹 환경에서 CORS 차단을 피하기 위해 공개 프록시를 경유합니다.
       return 'https://corsproxy.io/?${Uri.encodeComponent(targetUrl)}';
