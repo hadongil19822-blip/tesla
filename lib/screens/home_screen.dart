@@ -43,17 +43,32 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       final data = await _apiService.fetchVehicleData();
       setState(() {
-        _carName = data['display_name'];
-        _batteryLevel = data['charge_state']['battery_level'];
-        _remainingRange = data['charge_state']['est_battery_range'];
-        _isLocked = data['vehicle_state']['locked'];
-        _isClimateOn = data['climate_state']['is_climate_on'];
-        _insideTemp = (data['climate_state']['inside_temp'] as num).toDouble();
-        _outsideTemp = (data['climate_state']['outside_temp'] as num).toDouble();
-        _odometer = (data['vehicle_state']['odometer'] as num).toDouble();
+        _carName = data['display_name'] ?? "My Tesla";
+        
+        final chargeState = data['charge_state'] ?? {};
+        _batteryLevel = chargeState['battery_level'] ?? 0;
+        
+        // Tesla API는 miles를 반환하므로 km로 변환 (* 1.60934)
+        double rangeMiles = (chargeState['battery_range'] ?? chargeState['est_battery_range'] ?? 0).toDouble();
+        _remainingRange = rangeMiles * 1.60934;
+        
+        final vehicleState = data['vehicle_state'] ?? {};
+        _isLocked = vehicleState['locked'] ?? true;
+        double odoMiles = (vehicleState['odometer'] ?? 0).toDouble();
+        _odometer = odoMiles * 1.60934;
+        
+        final climateState = data['climate_state'] ?? {};
+        _isClimateOn = climateState['is_climate_on'] ?? false;
+        _insideTemp = (climateState['inside_temp'] ?? 0).toDouble();
+        _outsideTemp = (climateState['outside_temp'] ?? 0).toDouble();
       });
     } catch (e) {
       debugPrint("API 로드 실패: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+        );
+      }
     } finally {
       if(mounted) setState(() => _isLoading = false);
     }

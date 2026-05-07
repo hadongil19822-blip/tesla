@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main_screen.dart';
+import '../services/tesla_api_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,20 +42,28 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = true;
     });
 
-    // 토큰 저장 (다음 접속 시 편리하게)
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('tesla_token', token);
-
-    // TODO: 이 토큰을 TeslaApiService로 넘겨주어 검증하는 로직 추가
-
-    await Future.delayed(const Duration(seconds: 1)); // 시뮬레이션
+    final apiService = TeslaApiService();
+    final isValid = await apiService.verifyToken(token);
 
     if (!mounted) return;
 
-    // 메인 화면으로 이동
-    Navigator.of(context).pushReplacement(
-      CupertinoPageRoute(builder: (context) => const MainScreen()),
-    );
+    if (isValid) {
+      // 토큰 저장 (다음 접속 시 편리하게)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('tesla_token', token);
+
+      // 메인 화면으로 이동
+      Navigator.of(context).pushReplacement(
+        CupertinoPageRoute(builder: (context) => const MainScreen()),
+      );
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('유효하지 않은 토큰입니다. (웹 브라우저의 경우 CORS 차단일 수 있습니다)')),
+      );
+    }
   }
 
   @override

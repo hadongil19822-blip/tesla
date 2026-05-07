@@ -1,64 +1,150 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 
 /// 스마트폰과 테슬라 차량 간의 통신을 담당하는 서비스 클래스
-/// (실제 Tesla Fleet API 또는 토큰 기반 Oauth 방식을 시뮬레이션 합니다.)
+/// (실제 Tesla Owner API 연동)
 class TeslaApiService {
-  /// 차량 정보(배터리, 위치 등)를 가져옵니다.
-  /// (현재는 1.5초 후 가짜 JSON 데이터를 응답해주는 식으로 구현됨)
-  Future<Map<String, dynamic>> fetchVehicleData() async {
-    // 실제 통신 딜레이(지연 시간) 연출
-    await Future.delayed(const Duration(milliseconds: 1500));
-    
-    // 테슬라 서버가 진짜 보내줄 법한 JSON 구조
-    String mockJsonResponse = '''
-    {
-      "id": 1234567890,
-      "state": "online",
-      "display_name": "My Model Y",
-      "charge_state": {
-        "battery_level": 78,
-        "est_battery_range": 384.5,
-        "charging_state": "Disconnected"
-      },
-      "vehicle_state": {
-        "locked": true,
-        "odometer": 10502.3,
-        "is_user_present": false,
-        "center_display_state": 0,
-        "fd_window": 0,
-        "fp_window": 0
-      },
-      "climate_state": {
-        "inside_temp": 18.2,
-        "outside_temp": 12.0,
-        "is_climate_on": false
-      }
+  final String _baseUrl = 'https://owner-api.teslamotors.com/api/1';
+  String? _accessToken;
+  String? _vehicleId;
+
+  Future<void> _initToken() async {
+    if (_accessToken == null) {
+      final prefs = await SharedPreferences.getInstance();
+      _accessToken = prefs.getString('tesla_token');
     }
-    ''';
+  }
+
+  void setToken(String token) {
+    _accessToken = token;
+  }
+
+  Future<Map<String, String>> _getHeaders() async {
+    await _initToken();
+    return {
+      'Authorization': 'Bearer $_accessToken',
+      'Content-Type': 'application/json',
+      'User-Agent': 'TeslaSuperApp/1.0'
+    };
+  }
+
+  /// 1. 토큰 유효성 검증 (차량 목록 조회)
+  Future<bool> verifyToken(String token) async {
+    setToken(token);
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('$_baseUrl/vehicles'), headers: headers);
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final vehicles = data['response'] as List;
+        if (vehicles.isNotEmpty) {
+          _vehicleId = vehicles[0]['id_s'];
+          return true; // 성공적으로 차량을 찾음
+        }
+      } else {
+        debugPrint('Token Error: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Verify Exception: $e');
+    }
+    return false;
+  }
+
+  /// 차량 ID 가져오기
+  Future<String?> getVehicleId() async {
+    if (_vehicleId != null) return _vehicleId;
     
-    return jsonDecode(mockJsonResponse);
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('$_baseUrl/vehicles'), headers: headers);
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final vehicles = data['response'] as List;
+        if (vehicles.isNotEmpty) {
+          _vehicleId = vehicles[0]['id_s'];
+          return _vehicleId;
+        }
+      }
+    } catch (e) {
+      debugPrint('Vehicle ID Fetch Error: $e');
+    }
+    return null;
   }
 
-  /// 차량 잠금 제어 명령 (앱 -> 차)
+  /// 2. 실제 차량 정보 조회
+  Future<Map<String, dynamic>> fetchVehicleData() async {
+    final vid = await getVehicleId();
+    if (vid == null) {
+      throw Exception('차량을 찾을 수 없거나 토큰이 유효하지 않습니다.');
+    }
+
+    final headers = await _getHeaders();
+    final response = await http.get(Uri.parse('$_baseUrl/vehicles/$vid/vehicle_data'), headers: headers);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['response'];
+    } else if (response.statusCode == 408) {
+      // 차량이 수면 상태임 -> 깨우기 요청 보냄
+      await wakeUp();
+      throw Exception('차량이 절전 모드입니다. 깨우는 중이므로 10~20초 뒤 새로고침 하세요.');
+    } else {
+      throw Exception('데이터 로드 실패: ${response.statusCode}');
+    }
+  }
+
+  /// 차량 깨우기 (Wake Up)
+  Future<bool> wakeUp() async {
+    final vid = await getVehicleId();
+    if (vid == null) return false;
+    final headers = await _getHeaders();
+    final response = await http.post(Uri.parse('$_baseUrl/vehicles/$vid/wake_up'), headers: headers);
+    return response.statusCode == 200;
+  }
+
+  /// 공통 커맨드 전송 함수
+  Future<bool> _sendCommand(String command, [Map<String, dynamic>? body]) async {
+    final vid = await getVehicleId();
+    if (vid == null) return false;
+
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/vehicles/$vid/command/$command'),
+      headers: headers,
+      body: body != null ? jsonEncode(body) : null,
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['response']['result'] == true;
+    }
+    
+    debugPrint('Command failed: ${response.statusCode} - ${response.body}');
+    return false;
+  }
+
+  /// 3. 제어 명령: 도어 잠금/해제
   Future<bool> toggleLock(bool lockState) async {
-    await Future.delayed(const Duration(milliseconds: 800)); // 서버 왕복 시간
-    debugPrint('Command sent: ${lockState ? "Lock" : "Unlock"}');
-    return true; // 성공적으로 명령이 떨어졌다고 가정
+    return _sendCommand(lockState ? 'door_lock' : 'door_unlock');
   }
 
-  /// 프렁크(Front Trunk) 제어 명령
+  /// 제어 명령: 프렁크 열기
   Future<bool> openFrunk() async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    debugPrint('Command sent: Open Frunk');
-    return true;
+    return _sendCommand('actuate_trunk', {'which_trunk': 'front'});
   }
 
-  /// 공조기(히터/에어컨) 켜기 버튼 명령
+  /// 제어 명령: 공조(에어컨) 제어
   Future<bool> toggleClimate(bool climateState) async {
-    await Future.delayed(const Duration(milliseconds: 1000));
-    debugPrint('Command sent: ${climateState ? "Turn On" : "Turn Off"} Climate');
-    return true;
+    return _sendCommand(climateState ? 'auto_conditioning_start' : 'auto_conditioning_stop');
+  }
+  
+  /// 제어 명령: 경적 울리기
+  Future<bool> honkHorn() async {
+    return _sendCommand('honk_horn');
   }
 }
