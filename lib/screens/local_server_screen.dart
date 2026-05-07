@@ -67,7 +67,7 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
     // 1. 화면 캡처 시작
     try {
       _localStream = await navigator.mediaDevices.getDisplayMedia({
-        'video': true,
+        'video': {'deviceId': 'broadcast'},
         'audio': false,
       });
     } catch (e) {
@@ -133,7 +133,7 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
 </head>
 <body>
   <div class="status" id="status">연결 대기 중...</div>
-  <video id="video" autoplay playsinline></video>
+  <video id="video" autoplay playsinline muted></video>
 
   <script>
     const ws = new WebSocket('ws://$ip:$port/ws');
