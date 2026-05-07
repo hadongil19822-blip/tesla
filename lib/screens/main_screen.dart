@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'home_screen.dart';
-import 'navigation_screen.dart';
-import 'entertainment_screen.dart';
-import 'analytics_screen.dart';
-import 'assistance_screen.dart';
+import 'multi_view_screen.dart';
+import 'local_server_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -18,10 +16,8 @@ class _MainScreenState extends State<MainScreen> {
 
   final List<Widget> _screens = [
     const HomeScreen(),
-    const NavigationScreen(),
-    const EntertainmentScreen(),
-    const AnalyticsScreen(),
-    const AssistanceScreen(),
+    const MultiViewScreen(),
+    const LocalServerScreen(),
   ];
 
   @override
@@ -48,20 +44,12 @@ class _MainScreenState extends State<MainScreen> {
             label: '제어',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.navigation_rounded),
-            label: '내비',
+            icon: Icon(Icons.grid_view_rounded),
+            label: '멀티뷰',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.play_circle_outline_rounded),
-            label: '엔터',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.chart_bar_alt_fill),
-            label: '분석',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.shield_fill),
-            label: '보조',
+            icon: Icon(CupertinoIcons.square_arrow_right),
+            label: '미러링',
           ),
         ],
       ),

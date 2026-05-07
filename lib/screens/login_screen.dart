@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import 'main_screen.dart';
 import '../services/tesla_api_service.dart';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,7 +28,97 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _checkExistingToken();
+    // 웹에서 리다이렉트로 돌아왔을 때 코드 확인
+    if (kIsWeb) {
+      _checkRedirectCode();
+    } else {
+      _checkExistingToken();
+    }
+  }
+
+  /// URL에 ?code= 파라미터가 있으면 토큰 교환 진행
+  void _checkRedirectCode() async {
+    try {
+      final uri = Uri.base;
+      final code = uri.queryParameters['code'];
+      
+      if (code != null && code.isNotEmpty) {
+        // URL 정리 (코드 파라미터 제거)
+        _cleanUrl();
+        
+        setState(() {
+          _isLoading = true;
+          _statusMessage = '토큰 발급 중...';
+        });
+
+        // Cloudflare Worker를 통해 토큰 교환
+        final tokenResponse = await http.post(
+          Uri.parse('$_workerUrl/token'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'code': code}),
+        );
+
+        if (tokenResponse.statusCode == 200) {
+          final tokenData = jsonDecode(tokenResponse.body);
+          final accessToken = tokenData['access_token'];
+          
+          if (accessToken != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('tesla_token', accessToken);
+            if (tokenData['refresh_token'] != null) {
+              await prefs.setString('tesla_refresh_token', tokenData['refresh_token']);
+            }
+
+            setState(() { _statusMessage = '차량 연결 중...'; });
+
+            final apiService = TeslaApiService();
+            apiService.setToken(accessToken);
+
+            if (mounted) {
+              Navigator.of(context).pushReplacement(
+                CupertinoPageRoute(builder: (context) => const MainScreen()),
+              );
+            }
+            return;
+          }
+        }
+        
+        // 토큰 교환 실패
+        final errBody = jsonDecode(tokenResponse.body);
+        final errorMsg = errBody['error'] ?? '토큰 발급 실패';
+        
+        // 사파리 등에서 코드가 2번 사용된 경우
+        if (errorMsg.toString().contains('invalid_grant')) {
+          throw Exception('보안 코드가 만료되었습니다. 다시 로그인해주세요.');
+        }
+        throw Exception(errorMsg);
+      } else {
+        // 코드가 없으면 기존 토큰 확인
+        _checkExistingToken();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _statusMessage = '';
+        });
+        
+        // 에러 시 즉시 URL을 정리하여 무한 루프 방지
+        _cleanUrl();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')), 
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _cleanUrl() {
+    // 웹 환경에서는 dart:html이 필요하므로 네이티브 앱에서는 사용하지 않음
   }
 
   void _checkExistingToken() async {
@@ -34,107 +127,32 @@ class _LoginScreenState extends State<LoginScreen> {
     if (token != null && token.isNotEmpty) {
       setState(() {
         _isLoading = true;
-        _statusMessage = '저장된 토큰으로 자동 로그인 중...';
+        _statusMessage = '자동 로그인 중...';
       });
       final apiService = TeslaApiService();
       apiService.setToken(token);
-      final isValid = await apiService.verifyToken(token);
-      if (isValid && mounted) {
+      // 토큰 검증 생략 → 차량이 수면 중이면 검증 실패하므로 바로 진입
+      if (mounted) {
         Navigator.of(context).pushReplacement(
           CupertinoPageRoute(builder: (context) => const MainScreen()),
         );
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _statusMessage = '';
-          });
-        }
       }
     }
   }
 
-  Future<void> _handleOfficialLogin() async {
-    setState(() {
-      _isLoading = true;
-      _statusMessage = '테슬라 로그인 페이지 여는 중...';
+  void _handleOfficialLogin() async {
+    final authUrl = Uri.https('auth.tesla.com', '/oauth2/v3/authorize', {
+      'response_type': 'code',
+      'client_id': _clientId,
+      'redirect_uri': _redirectUri,
+      'scope': 'openid vehicle_device_data vehicle_cmds offline_access',
+      'state': DateTime.now().millisecondsSinceEpoch.toString(),
     });
 
-    try {
-      // 1단계: 테슬라 공식 로그인 창 띄우기
-      final authUrl = Uri.https('auth.tesla.com', '/oauth2/v3/authorize', {
-        'response_type': 'code',
-        'client_id': _clientId,
-        'redirect_uri': _redirectUri,
-        'scope': 'openid vehicle_device_data vehicle_cmds offline_access',
-        'state': DateTime.now().millisecondsSinceEpoch.toString(),
-      });
-
-      final result = await FlutterWebAuth2.authenticate(
-        url: authUrl.toString(),
-        callbackUrlScheme: 'https',
-      );
-
-      final code = Uri.parse(result).queryParameters['code'];
-      if (code == null) throw Exception('인증 코드를 받지 못했습니다.');
-
-      setState(() {
-        _statusMessage = '토큰 발급 중... (Cloudflare Worker 경유)';
-      });
-
-      // 2단계: Cloudflare Worker를 통해 인증코드 → 토큰 교환
-      final tokenResponse = await http.post(
-        Uri.parse('$_workerUrl/token'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'code': code}),
-      );
-
-      if (tokenResponse.statusCode != 200) {
-        final errData = jsonDecode(tokenResponse.body);
-        throw Exception('토큰 발급 실패: ${errData['error'] ?? tokenResponse.statusCode}');
-      }
-
-      final tokenData = jsonDecode(tokenResponse.body);
-      final accessToken = tokenData['access_token'];
-      if (accessToken == null) throw Exception('Access Token이 응답에 없습니다.');
-
-      // 3단계: 토큰 저장
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('tesla_token', accessToken);
-      if (tokenData['refresh_token'] != null) {
-        await prefs.setString('tesla_refresh_token', tokenData['refresh_token']);
-      }
-
-      setState(() {
-        _statusMessage = '차량 정보 불러오는 중...';
-      });
-
-      // 4단계: 차량 연결 확인 후 메인 화면 이동
-      final apiService = TeslaApiService();
-      final isValid = await apiService.verifyToken(accessToken);
-
-      if (isValid && mounted) {
-        Navigator.of(context).pushReplacement(
-          CupertinoPageRoute(builder: (context) => const MainScreen()),
-        );
-      } else if (mounted) {
-        // 토큰은 발급됐지만 차량 조회 실패 (차량이 잠자는 중일 수 있음)
-        // 그래도 토큰은 유효하므로 메인으로 이동
-        Navigator.of(context).pushReplacement(
-          CupertinoPageRoute(builder: (context) => const MainScreen()),
-        );
-      }
-    } catch (e) {
+    if (!await launchUrl(authUrl, mode: LaunchMode.externalApplication)) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _statusMessage = '';
-        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('로그인 실패: $e'),
-            duration: const Duration(seconds: 5),
-          ),
+          const SnackBar(content: Text('로그인 페이지를 열 수 없습니다.')),
         );
       }
     }
@@ -174,7 +192,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 64),
                 
-                // 로그인 버튼
                 ElevatedButton(
                   onPressed: _isLoading ? null : _handleOfficialLogin,
                   style: ElevatedButton.styleFrom(
@@ -192,15 +209,19 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
                             ),
                             const SizedBox(width: 12),
-                            Text(_statusMessage.isNotEmpty ? _statusMessage : '처리 중...', 
-                              style: const TextStyle(fontSize: 14, color: Colors.white)),
+                            Flexible(
+                              child: Text(
+                                _statusMessage.isNotEmpty ? _statusMessage : '처리 중...',
+                                style: const TextStyle(fontSize: 14, color: Colors.white),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         )
                       : const Text('Tesla 계정으로 로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
                 const SizedBox(height: 24),
                 
-                // 건너뛰기 버튼
                 TextButton(
                   onPressed: _isLoading ? null : () {
                     Navigator.of(context).pushReplacement(
