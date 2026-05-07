@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+import 'package:http/http.dart' as http;
 import 'main_screen.dart';
 import '../services/tesla_api_service.dart';
 
@@ -12,7 +15,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _tokenController = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -25,44 +27,92 @@ class _LoginScreenState extends State<LoginScreen> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('tesla_token');
     if (token != null && token.isNotEmpty) {
-      _tokenController.text = token;
+      // Auto login if token exists
+      final apiService = TeslaApiService();
+      apiService.setToken(token);
+      final isValid = await apiService.verifyToken(token);
+      if (isValid && mounted) {
+        Navigator.of(context).pushReplacement(
+          CupertinoPageRoute(builder: (context) => const MainScreen()),
+        );
+      }
     }
   }
 
-  void _handleTokenLogin() async {
-    final token = _tokenController.text.trim();
-    if (token.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('토큰 값을 입력해주세요!')),
-      );
-      return;
-    }
-
+  Future<void> _handleOfficialLogin() async {
     setState(() {
       _isLoading = true;
     });
 
-    final apiService = TeslaApiService();
-    final isValid = await apiService.verifyToken(token);
-
-    if (!mounted) return;
-
-    if (isValid) {
-      // 토큰 저장 (다음 접속 시 편리하게)
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('tesla_token', token);
-
-      // 메인 화면으로 이동
-      Navigator.of(context).pushReplacement(
-        CupertinoPageRoute(builder: (context) => const MainScreen()),
-      );
-    } else {
-      setState(() {
-        _isLoading = false;
+    try {
+      final clientId = '0c603db8-e784-4ff4-9170-f07d4f1e2d55';
+      final clientSecret = 'ta-secret.r2k7Ntla@h*FLIn!';
+      final redirectUri = 'https://hadongil19822-blip.github.io/tesla/auth.html';
+      
+      final url = Uri.https('auth.tesla.com', '/oauth2/v3/authorize', {
+        'response_type': 'code',
+        'client_id': clientId,
+        'redirect_uri': redirectUri,
+        'scope': 'openid vehicle_device_data vehicle_cmds offline_access',
+        'state': '12345'
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('유효하지 않은 토큰입니다. (웹 브라우저의 경우 CORS 차단일 수 있습니다)')),
+
+      // 1. 공식 테슬라 웹 로그인 창 띄우기
+      final result = await FlutterWebAuth2.authenticate(
+        url: url.toString(),
+        callbackUrlScheme: 'https',
       );
+
+      final code = Uri.parse(result).queryParameters['code'];
+      if (code == null) throw Exception('인증 코드를 받지 못했습니다.');
+
+      // 2. 코드를 토큰으로 교환하기
+      final tokenUrl = 'https://corsproxy.io/?${Uri.encodeComponent('https://auth.tesla.com/oauth2/v3/token')}';
+      final response = await http.post(
+        Uri.parse(tokenUrl),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'grant_type': 'authorization_code',
+          'client_id': clientId,
+          'client_secret': clientSecret,
+          'code': code,
+          'redirect_uri': redirectUri,
+          'audience': 'https://fleet-api.prd.na.vn.cloud.tesla.com'
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final accessToken = data['access_token'];
+        
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('tesla_token', accessToken);
+
+        final apiService = TeslaApiService();
+        final isValid = await apiService.verifyToken(accessToken);
+
+        if (isValid && mounted) {
+          Navigator.of(context).pushReplacement(
+            CupertinoPageRoute(builder: (context) => const MainScreen()),
+          );
+        } else {
+          throw Exception('차량 정보를 불러올 수 없습니다.');
+        }
+      } else {
+        throw Exception('토큰 발급 실패: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('로그인 실패: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -88,41 +138,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Icon(CupertinoIcons.car_detailed, size: 100, color: Colors.white),
                 const SizedBox(height: 24),
                 const Text(
-                  'Tesla Super App',
+                  'My Smart Car Web',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 1.5),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '비공식 토큰(Token) 방식으로 로그인합니다.',
+                  '테슬라 공식 계정으로 안전하게 로그인하세요.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
                 const SizedBox(height: 64),
                 
-                // 토큰 입력 (기존 이메일/비번 대신)
-                TextField(
-                  controller: _tokenController,
-                  maxLines: 4,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: '이곳에 eyJ... 로 시작하는 Refresh Token 또는 Access Token을 붙여넣으세요.',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.1),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                
                 // 로그인 버튼
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _handleTokenLogin,
+                  onPressed: _isLoading ? null : _handleOfficialLogin,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
+                    backgroundColor: const Color(0xFFE82127), // 테슬라 레드
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     elevation: 0,
@@ -132,23 +164,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 20, width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
                         )
-                      : const Text('토큰으로 차량 연결하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      : const Text('Tesla 계정으로 로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
                 const SizedBox(height: 24),
                 
-                // 안내 링크 및 건너뛰기 버튼
+                // 건너뛰기 버튼
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    TextButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('App Store에서 "Auth app for Tesla"를 검색해보세요!')),
-                        );
-                      },
-                      child: const Text('토큰을 어디서 구하나요?', style: TextStyle(color: Colors.grey, decoration: TextDecoration.underline)),
-                    ),
-                    const Text('|', style: TextStyle(color: Colors.grey)),
                     TextButton(
                       onPressed: () {
                         Navigator.of(context).pushReplacement(
@@ -165,11 +188,5 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _tokenController.dispose();
-    super.dispose();
   }
 }

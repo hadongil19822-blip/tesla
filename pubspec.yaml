@@ -37,7 +37,7 @@ dependencies:
   geolocator: ^14.0.2
   flutter_tts: ^4.2.5
   http: ^1.6.0
-  flutter_web_auth_2: ^5.0.1
+  flutter_web_auth_2: ^5.0.2
   shared_preferences: ^2.5.4
   url_launcher: ^6.3.2
   web: ^1.1.1
