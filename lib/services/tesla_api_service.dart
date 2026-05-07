@@ -33,7 +33,7 @@ class TeslaApiService {
   Future<Map<String, String>> _getHeaders() async {
     await _initToken();
     return {
-      'Authorization': 'Bearer $_accessToken',
+      'Authorization': 'Bearer \$_accessToken',
       'Content-Type': 'application/json',
       'User-Agent': 'TeslaSuperApp/1.0'
     };
@@ -54,10 +54,10 @@ class TeslaApiService {
           return true; // 성공적으로 차량을 찾음
         }
       } else {
-        debugPrint('Token Error: ${response.statusCode} - ${response.body}');
+        debugPrint('Token Error: \${response.statusCode} - \${response.body}');
       }
     } catch (e) {
-      debugPrint('Verify Exception: $e');
+      debugPrint('Verify Exception: \$e');
     }
     return false;
   }
@@ -79,7 +79,7 @@ class TeslaApiService {
         }
       }
     } catch (e) {
-      debugPrint('Vehicle ID Fetch Error: $e');
+      debugPrint('Vehicle ID Fetch Error: \$e');
     }
     return null;
   }
@@ -92,7 +92,7 @@ class TeslaApiService {
     }
 
     final headers = await _getHeaders();
-    final response = await http.get(Uri.parse(_buildUrl('/vehicles/$vid/vehicle_data')), headers: headers);
+    final response = await http.get(Uri.parse(_buildUrl('/vehicles/\$vid/vehicle_data')), headers: headers);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -102,7 +102,7 @@ class TeslaApiService {
       await wakeUp();
       throw Exception('차량이 절전 모드입니다. 깨우는 중이므로 10~20초 뒤 새로고침 하세요.');
     } else {
-      throw Exception('데이터 로드 실패: ${response.statusCode}');
+      throw Exception('데이터 로드 실패: \${response.statusCode}');
     }
   }
 
@@ -111,7 +111,7 @@ class TeslaApiService {
     final vid = await getVehicleId();
     if (vid == null) return false;
     final headers = await _getHeaders();
-    final response = await http.post(Uri.parse(_buildUrl('/vehicles/$vid/wake_up')), headers: headers);
+    final response = await http.post(Uri.parse(_buildUrl('/vehicles/\$vid/wake_up')), headers: headers);
     return response.statusCode == 200;
   }
 
@@ -122,7 +122,7 @@ class TeslaApiService {
 
     final headers = await _getHeaders();
     final response = await http.post(
-      Uri.parse(_buildUrl('/vehicles/$vid/command/$command')),
+      Uri.parse(_buildUrl('/vehicles/\$vid/command/\$command')),
       headers: headers,
       body: body != null ? jsonEncode(body) : null,
     );
@@ -132,7 +132,7 @@ class TeslaApiService {
       return data['response']['result'] == true;
     }
     
-    debugPrint('Command failed: ${response.statusCode} - ${response.body}');
+    debugPrint('Command failed: \${response.statusCode} - \${response.body}');
     return false;
   }
 

@@ -136,14 +136,28 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 
-                // 안내 링크
-                TextButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('App Store에서 "Auth app for Tesla"를 검색해보세요!')),
-                    );
-                  },
-                  child: const Text('토큰을 어디서 구하나요?', style: TextStyle(color: Colors.grey, decoration: TextDecoration.underline)),
+                // 안내 링크 및 건너뛰기 버튼
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('App Store에서 "Auth app for Tesla"를 검색해보세요!')),
+                        );
+                      },
+                      child: const Text('토큰을 어디서 구하나요?', style: TextStyle(color: Colors.grey, decoration: TextDecoration.underline)),
+                    ),
+                    const Text('|', style: TextStyle(color: Colors.grey)),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pushReplacement(
+                          CupertinoPageRoute(builder: (context) => const MainScreen()),
+                        );
+                      },
+                      child: const Text('토큰 없이 둘러보기', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 ),
               ],
             ),
