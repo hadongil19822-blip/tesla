@@ -60,11 +60,15 @@ class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        switch sampleBufferType {
-        case RPSampleBufferType.video:
-            uploader?.send(sample: sampleBuffer)
-        default:
-            break
+        autoreleasepool {
+            switch sampleBufferType {
+            case RPSampleBufferType.video:
+                frameCount += 1
+                if frameCount % 2 != 0 { return }
+                uploader?.send(sample: sampleBuffer)
+            default:
+                break
+            }
         }
     }
 }
@@ -208,9 +212,9 @@ private extension SampleUploader {
         
         CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
         
-        let scaleFactor = 1.0
-        let width = CVPixelBufferGetWidth(imageBuffer)/Int(scaleFactor)
-        let height = CVPixelBufferGetHeight(imageBuffer)/Int(scaleFactor)
+        let scaleFactor: Double = 1.43
+        let width = Int(Double(CVPixelBufferGetWidth(imageBuffer)) / scaleFactor)
+        let height = Int(Double(CVPixelBufferGetHeight(imageBuffer)) / scaleFactor)
         let orientation = CMGetAttachment(buffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil)?.uintValue ?? 0
                                     
         let scaleTransform = CGAffineTransform(scaleX: CGFloat(1.0/scaleFactor), y: CGFloat(1.0/scaleFactor))
@@ -243,7 +247,7 @@ private extension SampleUploader {
             return nil
         }
       
-        let options: [CIImageRepresentationOption: Float] = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0]
+        let options: [CIImageRepresentationOption: Float] = [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.6]
 
         return SampleUploader.imageContext.jpegRepresentation(of: image, colorSpace: colorSpace, options: options)
     }

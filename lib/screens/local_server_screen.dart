@@ -128,7 +128,7 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
   <style>
     body { background: #000; color: #fff; margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
     #video { width: 100%; height: 100%; object-fit: contain; }
-    .status { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; font-family: sans-serif; }
+    .status { display: none; }
   </style>
 </head>
 <body>
@@ -136,6 +136,15 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
   <video id="video" autoplay playsinline muted></video>
 
   <script>
+    const video = document.getElementById('video');
+    video.addEventListener('resize', () => {
+      if (video.videoWidth > video.videoHeight) {
+        video.style.objectFit = 'cover'; // 가로 모드일 때는 꽉 채움 (위아래 블랙바 제거)
+      } else {
+        video.style.objectFit = 'contain'; // 세로 모드일 때는 원본 비율 유지 (잘림 방지)
+      }
+    });
+
     const ws = new WebSocket('ws://$ip:$port/ws');
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
