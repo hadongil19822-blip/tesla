@@ -1,8 +1,7 @@
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:network_info_plus/network_info_plus.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../services/signaling_service.dart';
 
 class LocalServerScreen extends StatefulWidget {
   const LocalServerScreen({super.key});
@@ -12,237 +11,320 @@ class LocalServerScreen extends StatefulWidget {
 }
 
 class _LocalServerScreenState extends State<LocalServerScreen> {
-  HttpServer? _server;
-  String _ipAddress = '확인 중...';
-  int _port = 8080;
-  bool _isRunning = false;
+  final SignalingService _signaling = SignalingService();
+  String? _pin;
+  String _status = '준비 중...';
+  bool _isConnected = false;
+  final List<String> _logs = [];
 
   MediaStream? _localStream;
   RTCPeerConnection? _peerConnection;
 
+  static const _iceServers = {
+    'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {
+        'urls': 'turn:openrelay.metered.ca:80',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
+      {
+        'urls': 'turn:openrelay.metered.ca:443',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
+      {
+        'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
+    ],
+  };
+
   @override
   void initState() {
     super.initState();
-    _startServer();
+    _initSignaling();
   }
 
-  Future<void> _startServer() async {
-    try {
-      final info = NetworkInfo();
-      String? wifiIP = await info.getWifiIP();
-      
-      if (wifiIP == null || wifiIP.isEmpty) {
-        setState(() => _ipAddress = 'Wi-Fi 핫스팟을 켜주세요');
-        return;
-      }
-
-      setState(() => _ipAddress = wifiIP);
-
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, _port);
-      setState(() => _isRunning = true);
-
-      _server!.listen((HttpRequest request) {
-        if (request.uri.path == '/') {
-          request.response
-            ..headers.contentType = ContentType.html
-            ..write(_getDashboardHtml(wifiIP, _port))
-            ..close();
-        } else if (request.uri.path == '/ws') {
-          WebSocketTransformer.upgrade(request).then((WebSocket ws) {
-            _handleWebSocket(ws);
-          });
-        } else {
-          request.response
-            ..statusCode = HttpStatus.notFound
-            ..write('Not found')
-            ..close();
-        }
+  void _log(String msg) {
+    print('[Mirror] $msg');
+    if (mounted) {
+      setState(() {
+        _logs.add('[${DateTime.now().toString().substring(11, 19)}] $msg');
+        if (_logs.length > 30) _logs.removeAt(0);
       });
-    } catch (e) {
-      setState(() => _ipAddress = '서버 시작 실패: $e');
     }
   }
 
-  void _handleWebSocket(WebSocket ws) async {
-    // 1. 화면 캡처 시작
+  Future<void> _initSignaling() async {
+    setState(() => _status = '방 생성 중...');
+
+    _signaling.onLog = (msg) => _log(msg);
+
+    _signaling.onAnswerReceived = (data) async {
+      _log('테슬라에서 응답 수신!');
+      if (_peerConnection != null) {
+        await _peerConnection!.setRemoteDescription(
+          RTCSessionDescription(data['sdp'], data['type']),
+        );
+        setState(() {
+          _status = '미러링 중!';
+          _isConnected = true;
+        });
+      }
+    };
+
+    _signaling.onIceCandidateReceived = (data) async {
+      if (_peerConnection != null) {
+        await _peerConnection!.addCandidate(
+          RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']),
+        );
+      }
+    };
+
+    try {
+      final pin = await _signaling.createRoom();
+      setState(() {
+        _pin = pin;
+        _status = '테슬라에서 접속 대기 중';
+      });
+
+      // WebRTC 준비 및 Offer 전송
+      await _setupWebRTC();
+    } catch (e) {
+      _log('초기화 실패: $e');
+      setState(() => _status = '오류: $e');
+    }
+  }
+
+  Future<void> _setupWebRTC() async {
     try {
       _localStream = await navigator.mediaDevices.getDisplayMedia({
         'video': {'deviceId': 'broadcast'},
         'audio': false,
       });
+      _log('화면 캡처 시작됨');
     } catch (e) {
-      print('화면 캡처 오류: $e');
+      _log('화면 캡처 오류: $e');
       return;
     }
 
-    // 2. WebRTC 연결 설정
-    _peerConnection = await createPeerConnection({
-      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
-    });
+    _peerConnection = await createPeerConnection(_iceServers);
 
     _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-      ws.add(jsonEncode({
-        'type': 'candidate',
+      _signaling.sendIceCandidate({
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
-      }));
+      });
+    };
+
+    _peerConnection!.onConnectionState = (state) {
+      _log('연결 상태: $state');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        setState(() {
+          _isConnected = true;
+          _status = '🎉 미러링 중!';
+        });
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+                 state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        setState(() {
+          _isConnected = false;
+          _status = '연결 끊김';
+        });
+      }
     };
 
     _localStream!.getTracks().forEach((track) {
       _peerConnection!.addTrack(track, _localStream!);
     });
 
-    // 3. Offer 생성 및 전송
     RTCSessionDescription offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
-    
-    ws.add(jsonEncode({
-      'type': 'offer',
-      'sdp': offer.sdp,
-    }));
 
-    // 4. 클라이언트(테슬라)로부터 Answer 및 ICE 처리
-    ws.listen((message) async {
-      final data = jsonDecode(message);
-      if (data['type'] == 'answer') {
-        await _peerConnection!.setRemoteDescription(
-          RTCSessionDescription(data['sdp'], data['type']),
-        );
-      } else if (data['type'] == 'candidate') {
-        await _peerConnection!.addCandidate(
-          RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']),
-        );
-      }
-    });
+    await _signaling.sendOffer(offer.sdp!);
+    _log('Offer 전송 완료, 테슬라 접속 대기...');
   }
 
-  String _getDashboardHtml(String ip, int port) {
-    return '''
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Tesla Mirroring</title>
-  <style>
-    body { background: #000; color: #fff; margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
-    #video { width: 100%; height: 100%; object-fit: contain; }
-    .status { display: none; }
-  </style>
-</head>
-<body>
-  <div class="status" id="status">연결 대기 중...</div>
-  <video id="video" autoplay playsinline muted></video>
+  void _copyToClipboard(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('복사됨!'), duration: Duration(seconds: 1)),
+    );
+  }
 
-  <script>
-    const video = document.getElementById('video');
-    video.addEventListener('resize', () => {
-      if (video.videoWidth > video.videoHeight) {
-        video.style.objectFit = 'cover'; // 가로 모드일 때는 꽉 채움 (위아래 블랙바 제거)
-      } else {
-        video.style.objectFit = 'contain'; // 세로 모드일 때는 원본 비율 유지 (잘림 방지)
-      }
+  Future<void> _restart() async {
+    _localStream?.dispose();
+    _peerConnection?.dispose();
+    await _signaling.closeRoom();
+    setState(() {
+      _pin = null;
+      _isConnected = false;
+      _logs.clear();
     });
-
-    const ws = new WebSocket('ws://$ip:$port/ws');
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    ws.onmessage = async (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'offer') {
-        document.getElementById('status').innerText = '연결 중...';
-        await pc.setRemoteDescription(new RTCSessionDescription(msg));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(new RTCIceCandidate(msg));
-      }
-    };
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        ws.send(JSON.stringify({
-          type: 'candidate',
-          candidate: e.candidate.candidate,
-          sdpMid: e.candidate.sdpMid,
-          sdpMLineIndex: e.candidate.sdpMLineIndex
-        }));
-      }
-    };
-
-    pc.ontrack = (e) => {
-      document.getElementById('status').innerText = '미러링 중';
-      document.getElementById('video').srcObject = e.streams[0];
-    };
-
-    ws.onclose = () => {
-      document.getElementById('status').innerText = '연결 끊김';
-    };
-  </script>
-</body>
-</html>
-    ''';
+    _initSignaling();
   }
 
   @override
   void dispose() {
     _localStream?.dispose();
     _peerConnection?.dispose();
-    _server?.close();
+    _signaling.closeRoom();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    const webUrl = 'hadongil.github.io/tesla';
+
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       appBar: AppBar(
-        title: const Text('로컬 미러링 서버'),
+        title: const Text('테슬라 미러링'),
         backgroundColor: Colors.black,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _restart),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isRunning ? Icons.connected_tv : Icons.tv_off,
-              size: 80,
-              color: _isRunning ? Colors.blueAccent : Colors.red,
+      body: SingleChildScrollView(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                // 상태 아이콘
+                Icon(
+                  _isConnected ? Icons.cast_connected :
+                  _pin != null ? Icons.cast : Icons.hourglass_top,
+                  size: 56,
+                  color: _isConnected ? Colors.greenAccent :
+                         _pin != null ? Colors.cyanAccent : Colors.orangeAccent,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _status,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _isConnected ? Colors.greenAccent : Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+
+                if (_pin != null) ...[
+                  const SizedBox(height: 30),
+
+                  // STEP 1: 테슬라에서 접속할 주소
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.cyanAccent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.language, color: Colors.cyanAccent, size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              '테슬라 브라우저에서 접속:',
+                              style: TextStyle(color: Colors.cyanAccent, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        GestureDetector(
+                          onTap: () => _copyToClipboard(webUrl),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.cyanAccent),
+                            ),
+                            child: const Text(
+                              webUrl,
+                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.cyanAccent),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text('항상 같은 주소! 즐겨찾기 등록하세요', 
+                          style: TextStyle(color: Colors.grey, fontSize: 10)),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // STEP 2: PIN 입력
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.greenAccent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.pin, color: Colors.greenAccent, size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              '접속 후 아래 PIN 입력:',
+                              style: TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _pin!,
+                          style: const TextStyle(
+                            fontSize: 56,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent,
+                            letterSpacing: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 24),
+
+                // 로그
+                Container(
+                  width: double.infinity,
+                  height: 120,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  ),
+                  child: ListView.builder(
+                    itemCount: _logs.length,
+                    reverse: true,
+                    itemBuilder: (_, i) => Text(
+                      _logs[_logs.length - 1 - i],
+                      style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'Courier'),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            Text(
-              _isRunning ? '테슬라와 연결할 준비가 되었습니다' : '서버가 중지되었습니다',
-              style: const TextStyle(color: Colors.white, fontSize: 20),
-            ),
-            const SizedBox(height: 40),
-            const Text('테슬라 브라우저에서 아래 주소를 입력하세요:', style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.blueAccent.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blueAccent),
-              ),
-              child: Text(
-                'http://$_ipAddress:$_port',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-              ),
-            ),
-            const SizedBox(height: 40),
-            const Padding(
-              padding: EdgeInsets.all(24.0),
-              child: Text(
-                '차량 탑승 후 스마트폰의 핫스팟을 켜고, 테슬라를 핫스팟에 연결하세요.\\n접속하면 폰 화면 녹화(방송) 권한을 요청합니다.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 13, height: 1.5),
-              ),
-            )
-          ],
+          ),
         ),
       ),
     );

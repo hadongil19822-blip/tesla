@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Tesla Mirror</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* PIN 입력 화면 */
+    #pin-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+    }
+    #pin-screen h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #00d4ff, #00ff88);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    #pin-screen p { color: #888; font-size: 14px; margin-bottom: 30px; }
+    .pin-input {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .pin-input input {
+      width: 60px; height: 72px;
+      background: #1a1a2e;
+      border: 2px solid #333;
+      border-radius: 12px;
+      color: #00ff88;
+      font-size: 32px;
+      text-align: center;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .pin-input input:focus { border-color: #00ff88; }
+    #connect-btn {
+      padding: 14px 48px;
+      background: linear-gradient(90deg, #00d4ff, #00ff88);
+      border: none;
+      border-radius: 12px;
+      color: #000;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    #connect-btn:active { transform: scale(0.95); }
+    #connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #pin-error { color: #ff6b6b; margin-top: 12px; font-size: 13px; display: none; }
+
+    /* 미러링 화면 */
+    #mirror-screen {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    #overlay {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 20px;
+      color: rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.8);
+      padding: 16px 32px;
+      border-radius: 12px;
+      z-index: 10;
+      transition: opacity 0.5s;
+    }
+    #overlay.hidden { opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+  <!-- PIN 입력 화면 -->
+  <div id="pin-screen">
+    <h1>🚗 Tesla Mirror</h1>
+    <p>아이폰 앱에 표시된 PIN을 입력하세요</p>
+    <div class="pin-input">
+      <input type="tel" maxlength="1" id="p1" autofocus>
+      <input type="tel" maxlength="1" id="p2">
+      <input type="tel" maxlength="1" id="p3">
+      <input type="tel" maxlength="1" id="p4">
+    </div>
+    <button id="connect-btn" onclick="connectWithPin()">연결</button>
+    <div id="pin-error"></div>
+  </div>
+
+  <!-- 미러링 화면 -->
+  <div id="mirror-screen">
+    <div id="overlay">연결 중...</div>
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <script>
+    // Firebase 초기화
+    firebase.initializeApp({
+      apiKey: "AIzaSyDzfKA4oSHa_l0_nRpaEBmsXHYqopBEQcs",
+      projectId: "tesla-mirror-app",
+      databaseURL: "https://tesla-mirror-app-default-rtdb.firebaseio.com"
+    });
+    const db = firebase.database();
+
+    // PIN 입력 자동 포커스
+    document.querySelectorAll('.pin-input input').forEach((input, i, inputs) => {
+      input.addEventListener('input', () => {
+        if (input.value.length === 1 && i < inputs.length - 1) {
+          inputs[i + 1].focus();
+        }
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && i > 0) {
+          inputs[i - 1].focus();
+        }
+        if (e.key === 'Enter') connectWithPin();
+      });
+    });
+
+    async function connectWithPin() {
+      const pin = ['p1','p2','p3','p4'].map(id => document.getElementById(id).value).join('');
+      if (pin.length !== 4) {
+        showError('4자리 PIN을 입력하세요');
+        return;
+      }
+
+      const btn = document.getElementById('connect-btn');
+      btn.disabled = true;
+      btn.textContent = '연결 중...';
+
+      try {
+        // Firebase에서 방 확인
+        const roomSnap = await db.ref('rooms/' + pin).once('value');
+        if (!roomSnap.exists()) {
+          showError('해당 PIN의 방을 찾을 수 없습니다');
+          btn.disabled = false;
+          btn.textContent = '연결';
+          return;
+        }
+
+        // offer 확인
+        const offerSnap = await db.ref('rooms/' + pin + '/offer').once('value');
+        if (!offerSnap.exists()) {
+          showError('아이폰에서 아직 준비되지 않았습니다');
+          btn.disabled = false;
+          btn.textContent = '연결';
+          return;
+        }
+
+        // 화면 전환
+        document.getElementById('pin-screen').style.display = 'none';
+        document.getElementById('mirror-screen').style.display = 'block';
+        showOverlay('미러링 연결 중...');
+
+        // WebRTC 연결
+        await startWebRTC(pin, offerSnap.val());
+      } catch (e) {
+        showError('연결 오류: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = '연결';
+      }
+    }
+
+    async function startWebRTC(pin, offer) {
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+        ]
+      });
+
+      // ICE candidate를 Firebase에 전송
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          db.ref('rooms/' + pin + '/tesla_candidates').push().set({
+            candidate: e.candidate.candidate,
+            sdpMid: e.candidate.sdpMid,
+            sdpMLineIndex: e.candidate.sdpMLineIndex
+          });
+        }
+      };
+
+      // 비디오 수신
+      pc.ontrack = (e) => {
+        hideOverlay();
+        document.getElementById('video').srcObject = e.streams[0];
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+          showOverlay('연결 끊김 - 앱을 재시작하세요');
+        }
+      };
+
+      // Offer 설정 및 Answer 생성
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // Answer를 Firebase에 저장
+      await db.ref('rooms/' + pin + '/answer').set({
+        type: 'answer',
+        sdp: answer.sdp
+      });
+
+      // 아이폰의 ICE candidates 감시
+      db.ref('rooms/' + pin + '/phone_candidates').on('child_added', (snap) => {
+        const data = snap.val();
+        if (data) {
+          pc.addIceCandidate(new RTCIceCandidate(data));
+        }
+      });
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('pin-error');
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 3000);
+    }
+
+    function showOverlay(msg) {
+      const el = document.getElementById('overlay');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideOverlay() {
+      document.getElementById('overlay').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
