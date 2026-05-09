@@ -209,14 +209,33 @@
 
       // 비디오 수신
       pc.ontrack = (e) => {
-        hideOverlay();
-        document.getElementById('video').srcObject = e.streams[0];
+        showOverlay('영상 트랙 수신됨! 재생 시도...');
+        const videoElement = document.getElementById('video');
+        videoElement.srcObject = e.streams[0];
+        videoElement.play().then(() => {
+            hideOverlay();
+        }).catch(err => {
+            showOverlay('재생 실패: 화면을 탭해주세요 (' + err.message + ')');
+            // 화면 탭 시 재생하도록 이벤트 리스너 추가
+            document.body.addEventListener('click', () => {
+                videoElement.play().then(hideOverlay);
+            }, { once: true });
+        });
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        showOverlay('연결 상태: ' + pc.connectionState);
+        if (pc.connectionState === 'connected') {
+            showOverlay('연결 성공! 영상 대기 중...');
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           showOverlay('연결 끊김 - 앱을 재시작하세요');
         }
+      };
+      
+      pc.oniceconnectionstatechange = () => {
+          if (pc.iceConnectionState === 'failed') {
+              showOverlay('네트워크 방화벽으로 인해 연결 실패 (TURN 문제)');
+          }
       };
 
       // Offer 설정 및 Answer 생성
