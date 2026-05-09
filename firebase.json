@@ -1,0 +1,1 @@
+{"database":{"rules":"tesla-mirror-app"},"flutter":{"platforms":{"ios":{"default":{"projectId":"tesla-mirror-app","appId":"1:135653720:ios:e35bd711b65cd607cb5d2d","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"tesla-mirror-app","configurations":{"ios":"1:135653720:ios:e35bd711b65cd607cb5d2d"}}}}}}

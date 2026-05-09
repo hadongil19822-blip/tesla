@@ -60,15 +60,12 @@ class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        autoreleasepool {
-            switch sampleBufferType {
-            case RPSampleBufferType.video:
-                frameCount += 1
-                if frameCount % 2 != 0 { return }
-                uploader?.send(sample: sampleBuffer)
-            default:
-                break
-            }
+        switch sampleBufferType {
+        case RPSampleBufferType.video:
+            // 모든 프레임 전송 (WebRTC가 자동으로 대역폭에 맞게 조절)
+            uploader?.send(sample: sampleBuffer)
+        default:
+            break
         }
     }
 }
