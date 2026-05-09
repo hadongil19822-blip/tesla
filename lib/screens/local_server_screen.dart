@@ -24,6 +24,7 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
+      {'urls': 'stun:global.stun.twilio.com:3478'},
       {
         'urls': 'turn:openrelay.metered.ca:80',
         'username': 'openrelayproject',
@@ -36,6 +37,11 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
       },
       {
         'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject',
+      },
+      {
+        'urls': 'turn:openrelay.metered.ca:80?transport=tcp',
         'username': 'openrelayproject',
         'credential': 'openrelayproject',
       },
@@ -138,14 +144,70 @@ class _LocalServerScreenState extends State<LocalServerScreen> {
     };
 
     _localStream!.getTracks().forEach((track) {
-      _peerConnection!.addTrack(track, _localStream!);
+      _peerConnection!.addTransceiver(
+        track: track,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.SendOnly),
+      );
     });
 
-    RTCSessionDescription offer = await _peerConnection!.createOffer();
+    RTCSessionDescription offer = await _peerConnection!.createOffer({
+      'offerToReceiveVideo': false,
+      'offerToReceiveAudio': false,
+    });
+
+    // SDP에 비트레이트 제한 추가 (2.5Mbps)
+    String sdp = offer.sdp!;
+    sdp = _setMediaBitrate(sdp, 'video', 2500);
+    offer = RTCSessionDescription(sdp, offer.type);
+
     await _peerConnection!.setLocalDescription(offer);
+
+    // 전송 파라미터 최적화
+    final senders = await _peerConnection!.getSenders();
+    for (final sender in senders) {
+      if (sender.track?.kind == 'video') {
+        final params = sender.parameters;
+        if (params.encodings != null && params.encodings!.isNotEmpty) {
+          params.encodings![0].maxBitrate = 2500000; // 2.5 Mbps
+          params.encodings![0].maxFramerate = 30;
+          await sender.setParameters(params);
+        }
+      }
+    }
 
     await _signaling.sendOffer(offer.sdp!);
     _log('Offer 전송 완료, 테슬라 접속 대기...');
+  }
+
+  /// SDP에 비트레이트 제한을 삽입하는 헬퍼
+  String _setMediaBitrate(String sdp, String media, int bitrate) {
+    final lines = sdp.split('\n');
+    int lineIndex = -1;
+    for (int i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('m=$media')) {
+        lineIndex = i;
+        break;
+      }
+    }
+    if (lineIndex == -1) return sdp;
+
+    // 다음 m= 줄 또는 끝까지 탐색하여 b=AS: 삽입
+    int insertIndex = lineIndex + 1;
+    while (insertIndex < lines.length && !lines[insertIndex].startsWith('m=')) {
+      if (lines[insertIndex].startsWith('b=AS:')) {
+        lines[insertIndex] = 'b=AS:$bitrate';
+        return lines.join('\n');
+      }
+      insertIndex++;
+    }
+    // c= 줄 다음에 삽입
+    for (int i = lineIndex; i < insertIndex; i++) {
+      if (lines[i].startsWith('c=')) {
+        lines.insert(i + 1, 'b=AS:$bitrate');
+        return lines.join('\n');
+      }
+    }
+    return sdp;
   }
 
   void _copyToClipboard(String text) {

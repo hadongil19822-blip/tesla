@@ -190,11 +190,16 @@
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' },
           { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
           { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
         ]
       });
+
+      // 강제로 수신 전용 모드로 설정하여 송출하지 않도록 방화벽 이슈 예방
+      pc.addTransceiver('video', { direction: 'recvonly' });
 
       // ICE candidate를 Firebase에 전송
       pc.onicecandidate = (e) => {
@@ -234,13 +239,17 @@
       
       pc.oniceconnectionstatechange = () => {
           if (pc.iceConnectionState === 'failed') {
-              showOverlay('네트워크 방화벽으로 인해 연결 실패 (TURN 문제)');
+              showOverlay('네트워크 방화벽으로 인해 연결 실패 (ICE/TURN 문제)');
           }
       };
 
       // Offer 설정 및 Answer 생성
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
+      
+      // SDP에서 H264 또는 VP8 코덱 강제 선호 설정 (호환성 개선)
+      // 현재는 안드로이드/iOS 모두 H264 하드웨어 인코더를 잘 지원하므로 그대로 둡니다.
+
       await pc.setLocalDescription(answer);
 
       // Answer를 Firebase에 저장
